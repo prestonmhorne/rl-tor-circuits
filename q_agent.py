@@ -9,11 +9,11 @@ class QLearningAgent:
 
         self.num_relays = num_relays
 
-        self.learning_rate = config.LEARNING_RATE
+        self.learning_rate = config.Q_LEARNING_RATE
         self.discount_factor = config.DISCOUNT_FACTOR
-        self.epsilon = config.EPSILON
-        self.epsilon_decay = config.EPSILON_DECAY
-        self.min_epsilon = config.MIN_EPSILON
+        self.epsilon = config.Q_EPSILON
+        self.epsilon_decay = config.Q_EPSILON_DECAY
+        self.min_epsilon = config.Q_MIN_EPSILON
 
         self.Q = np.zeros((3, num_relays))
 

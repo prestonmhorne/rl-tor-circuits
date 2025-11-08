@@ -1,24 +1,41 @@
 # main.py
 
 import numpy as np
+import argparse
 import config
 from tor_circuit_env import CircuitEnv
 from q_agent import QLearningAgent
+# from dqn_agent import DQNAgent
+# from a2c_agent import A2CAgent
 
 def main():
-    np.random.seed(config.RANDOM_SEED)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--agent', type=str, default='q',
+                        choices=['q', 'dqn', 'a2c'])
+    parser.add_argument('--episodes', type=int, default=config.NUM_EPISODES)
+    parser.add_argument('--seed', type=int, default=config.RANDOM_SEED)
+    
+    args = parser.parse_args()
+
+    np.random.seed(args.seed)
 
     env = CircuitEnv()
 
-    agent = QLearningAgent(num_relays=config.NUM_RELAYS)
+    if args.agent == 'q':  
+        agent = QLearningAgent(num_relays=config.NUM_RELAYS)
+    # elif args.agent == 'dqn':
+    #     agent = DQNAgent(num_relays=config.NUM_RELAYS,
+    #                      obs_dim=env.observation_space.shape[0])
+    # elif args.agent == 'a2c':
+    #     agent = A2CAgent(num_relays=config.NUM_RELAYS,
+    #                      obs_dim=env.observation_space.shape[0])
+    
 
-    print("Training...")
-    print(f"Episodes: {config.NUM_EPISODES}")
+    print(f"Training {agent.__class__.__name__}...")
+    print(f"Episodes: {args.episodes}")
     print(f"Relays: {config.NUM_RELAYS}")
-    print(f"Learning Rate: {config.LEARNING_RATE}")
-    print(f"Epsilon: {config.EPSILON} -> {config.MIN_EPSILON}\n")
 
-    for episode in range(config.NUM_EPISODES):
+    for episode in range(args.episodes):
         obs, _ = env.reset()
         terminated = False
         episode_reward = 0
@@ -33,16 +50,19 @@ def main():
             episode_reward += reward
             steps += 1
 
-        agent.decay_epsilon()
+        if hasattr(agent, 'decay_epsilon'):
+            agent.decay_epsilon()
 
         if episode % config.LOG_FREQUENCY == 0:
-            print(f"Episode {episode:5d}/{config.NUM_EPISODES} | "
-                  f"Reward: {episode_reward:7.2f} | "
-                  f"Steps: {steps} | "
-                  f"Epsilon: {agent.epsilon:.3f}")
+            metrics = f"Episode {episode:5d}/{args.episodes} | Reward: {episode_reward:7.2f} | Steps: {steps}"
+            if hasattr(agent, 'epsilon'):
+                metrics += f" | Epsilon: {agent.epsilon:.3f}"
+            print(metrics)
+            
             
     print("Training Complete!")
-    print(f"Final Epsilon: {agent.epsilon:.3f}")
+    if hasattr(agent, 'epsilon'):
+        print(f"Final Epsilon: {agent.epsilon:.3f}")
 
     if env.exit_relay is not None:
         entry_guard = env.relays[env.entry_guard]
