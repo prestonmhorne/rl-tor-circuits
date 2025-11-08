@@ -1,4 +1,4 @@
-This project applies tabular Q-Learning to learn optimal multi-hop circuit selection in Tor, a decentralized anonymity network.
+This project implements and compares three RL approaches for multi-hop circuit selection in the Tor Onion network: tabular Q-Learning, DQN with linear approximation, and A2C with linear approximation. 
 
 Tor Project:
 - https://www.torproject.org
@@ -7,5 +7,6 @@ Tor Project:
 Dependencies: 
 - numpy 
 - gymnasium 
+- torch
 - matplotlib
 - networkx

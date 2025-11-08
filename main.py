@@ -3,7 +3,7 @@
 import numpy as np
 import config
 from tor_circuit_env import CircuitEnv
-from q_learning import QLearningAgent
+from q_agent import QLearningAgent
 
 def main():
     np.random.seed(config.RANDOM_SEED)
