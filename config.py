@@ -3,7 +3,7 @@
 RANDOM_SEED = 42
 
 # https://metrics.torproject.org/networksize.html (Nov 2025)
-NUM_RELAYS = 1000
+NUM_RELAYS = 7000
 
 # https://metrics.torproject.org/relayflags.html (Nov 2025)
 GUARD_FRACTION = 0.60
@@ -21,7 +21,7 @@ EPSILON = 1.0
 EPSILON_DECAY = 0.995
 MIN_EPSILON = 0.01
 
-NUM_EPISODES = 10000
+NUM_EPISODES = 1000
 
 REWARD_VALID = 0.5
 REWARD_INVALID = -10.0
