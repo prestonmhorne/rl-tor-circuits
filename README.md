@@ -1,5 +1,4 @@
-This project applies tabular Q-Learning to learn optimal multi-hop routing in a decentralized anonymity network called Tor 
-
+This project applies tabular Q-Learning to learn optimal multi-hop routing in Tor, a decentralized anonymity network.
 
 - https://www.torproject.org
 - https://gitlab.torproject.org
