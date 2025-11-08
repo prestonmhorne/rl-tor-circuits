@@ -1,9 +1,7 @@
+This project applies tabular Q-Learning to learn optimal multi-hop routing in a decentralized anonymity network called Tor.
 
-This project compares TD Learning with Contextual Bandit Agents to calculate an optimal policy for Single-Hop and Multi-Hop VPN servers 
-
-Dependencies:
-- torch 
+Dependencies: 
 - numpy 
 - gymnasium 
-- matplotlib 
-- requests
+- matplotlib
+- networkx
