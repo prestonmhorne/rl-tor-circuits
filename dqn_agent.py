@@ -32,23 +32,24 @@ class ReplayBuffer:
     def __init__(self, capacity):
         self.buffer = deque(maxlen=capacity)
 
-    def push(self, state, action, relay_features, reward, next_state, next_relay_features, done):
-        self.buffer.append((state, action, relay_features, reward, next_state, next_relay_features, done))
+    def push(self, state, action, relay_features, reward, next_state, next_relay_info, next_action_mask, done):
+        self.buffer.append((state, action, relay_features, reward, next_state, next_relay_info, next_action_mask, done))
 
     def sample(self, batch_size):
         indices = np.random.choice(len(self.buffer), batch_size, replace=False)
         batch = [self.buffer[idx] for idx in indices]
 
-        states, _, relay_features, rewards, next_states, next_relay_features, dones = zip(*batch)
+        states, _, relay_features, rewards, next_states, next_relay_infos, next_action_masks, dones = zip(*batch)
         return (
             np.array(states),
             np.array(relay_features),
             np.array(rewards, dtype=np.float32),
             np.array(next_states),
-            np.array(next_relay_features),
+            list(next_relay_infos),  
+            list(next_action_masks), 
             np.array(dones, dtype=np.float32)
         )
-    
+
     def __len__(self):
         return len(self.buffer)
 
@@ -60,10 +61,10 @@ class DQNAgent:
         self.relay_feature_dim = relay_feature_dim
 
         self.learning_rate = config.DQN_LEARNING_RATE
-        self.discount_factor = config.DISCOUNT_FACTOR
-        self.epsilon = config.DQN_EPSILON
+        self.discount_factor = config.DQN_DISCOUNT_FACTOR
+        self.epsilon = config.DQN_EPSILON_START
         self.epsilon_decay = config.DQN_EPSILON_DECAY
-        self.min_epsilon = config.DQN_MIN_EPSILON
+        self.min_epsilon = config.DQN_EPSILON_MIN
         self.batch_size = config.DQN_BATCH_SIZE
         self.target_update_freq = config.DQN_TARGET_UPDATE_FREQ
 
@@ -80,80 +81,97 @@ class DQNAgent:
 
     def _extract_relay_features(self, relay):
         return np.array([
-            relay['bandwidth'] / config.MAX_BANDWIDTH,
-            relay['latency'] / config.MAX_LATENCY,
+            relay['bandwidth'] / config.RELAY_MAX_BANDWIDTH,
+            relay['latency'] / config.RELAY_MAX_LATENCY,
             float(relay['guard_flag']),
             float(relay['exit_flag'])
         ], dtype=np.float32)
 
-    def policy(self, state, action_mask=None, relay_info=None):
+    def select_action(self, state, action_mask=None, relay_info=None):
         if np.random.random() < self.epsilon:
             if action_mask is not None:
                 valid_actions = np.where(action_mask)[0]
-                return np.random.choice(valid_actions)
+
+                bandwidths = np.array([relay_info[i]['bandwidth'] for i in valid_actions])
+
+                probs = bandwidths / bandwidths.sum()
+                return np.random.choice(valid_actions, p=probs)
             return np.random.randint(self.action_dim)
         else:
-            valid_actions = np.where(action_mask)[0] if action_mask is not None else range(self.action_dim)
-            best_action = None
-            best_q_value = -float('inf')
+            valid_actions = np.where(action_mask)[0] if action_mask is not None else np.arange(self.action_dim)
 
             with torch.no_grad():
-                state_tensor = torch.FloatTensor(state).unsqueeze(0)
+                relay_features_list = [self._extract_relay_features(relay_info[action]) for action in valid_actions]
+                relay_features_batch = torch.FloatTensor(np.array(relay_features_list))
 
-                for action in valid_actions:
-                    relay_features = self._extract_relay_features(relay_info[action])
-                    relay_features_tensor = torch.FloatTensor(relay_features).unsqueeze(0)
-                    q_value = self.q_network(state_tensor, relay_features_tensor).item()
+                state_batch = torch.FloatTensor(state).unsqueeze(0).repeat(len(valid_actions), 1)
 
-                    if q_value > best_q_value:
-                        best_q_value = q_value 
-                        best_action = action               
+                q_values = self.q_network(state_batch, relay_features_batch).squeeze(1)
+
+                best_idx = torch.argmax(q_values).item()
+                best_action = valid_actions[best_idx]
+
             return best_action
 
-    def update(self, state, action, reward, next_state, terminated, relay_info, next_relay_info, next_action_mask):
+    def store_transition(self, state, action, reward, next_state, terminated, relay_info, next_relay_info, next_action_mask):
+        """Store transition in replay buffer"""
         relay_features = self._extract_relay_features(relay_info[action])
-        
-        if not terminated:
-            next_valid_actions = np.where(next_action_mask)[0]
-            best_next_q = -float('inf')
-            best_next_relay_features = None
+        self.memory.push(state, action, relay_features, reward, next_state, next_relay_info, next_action_mask, terminated)
 
-            with torch.no_grad():
-                next_state_tensor = torch.FloatTensor(next_state).unsqueeze(0)
-
-                for next_action in next_valid_actions:
-                    next_rf = self._extract_relay_features(next_relay_info[next_action])
-                    next_rf_tensor = torch.FloatTensor(next_rf).unsqueeze(0)
-
-                    q_val = self.target_network(next_state_tensor, next_rf_tensor).item()
-
-                    if q_val > best_next_q:
-                        best_next_q = q_val
-                        best_next_relay_features = next_rf
-
-        else: 
-            best_next_relay_features = np.zeros(self.relay_feature_dim, dtype=np.float32)
-
-
-        self.memory.push(state, action, relay_features, reward, next_state, best_next_relay_features, terminated)
-
+    def train_step(self):
+        """Perform one step of training on a batch from replay buffer"""
         if len(self.memory) < self.batch_size:
             return
-        
-        states, relay_features_batch, rewards, next_states, next_relay_features_batch, dones = self.memory.sample(self.batch_size)
+
+        states, relay_features_batch, rewards, next_states, next_relay_infos, next_action_masks, dones = self.memory.sample(self.batch_size)
 
         states = torch.FloatTensor(states)
         relay_features_batch = torch.FloatTensor(relay_features_batch)
         rewards = torch.FloatTensor(rewards)
         next_states = torch.FloatTensor(next_states)
-        next_relay_features_batch = torch.FloatTensor(next_relay_features_batch)
         dones = torch.FloatTensor(dones)
 
         current_q_values = self.q_network(states, relay_features_batch).squeeze(1)
 
         with torch.no_grad():
-            next_q_values = self.target_network(next_states, next_relay_features_batch).squeeze(1)
-            target_q_values = rewards + (1 - dones) * self.discount_factor * next_q_values
+            next_q_values = torch.zeros(self.batch_size)
+
+            batch_states = []
+            batch_action_features = []
+            batch_indices = []  
+
+            for i in range(self.batch_size):
+                if not dones[i]:
+                    valid_actions = np.where(next_action_masks[i])[0]
+
+                    for action in valid_actions:
+                        batch_states.append(next_states[i])
+                        batch_action_features.append(
+                            self._extract_relay_features(next_relay_infos[i][action])
+                        )
+                        batch_indices.append(i)
+
+            if len(batch_states) > 0:
+                batch_states_tensor = torch.FloatTensor(np.array(batch_states))
+                batch_action_features_tensor = torch.FloatTensor(np.array(batch_action_features))
+
+                all_q_values = self.target_network(
+                    batch_states_tensor,
+                    batch_action_features_tensor
+                ).squeeze(1)
+
+                current_idx = 0
+                for i in range(self.batch_size):
+                    if not dones[i]:
+                        valid_actions = np.where(next_action_masks[i])[0]
+                        num_valid = len(valid_actions)
+
+                        sample_q_values = all_q_values[current_idx:current_idx + num_valid]
+                        next_q_values[i] = torch.max(sample_q_values).item()
+
+                        current_idx += num_valid
+
+            target_q_values = rewards + self.discount_factor * next_q_values
 
         loss = nn.MSELoss()(current_q_values, target_q_values)
 

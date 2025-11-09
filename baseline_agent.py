@@ -9,7 +9,7 @@ class BaselineAgent:
         self.action_dim = action_dim
         self.state_dim = state_dim
 
-    def policy(self, state, action_mask, relay_info):
+    def select_action(self, state, action_mask, relay_info):
         valid_actions = np.where(action_mask)[0]
         
         bandwidths = np.array([relay_info[i]['bandwidth'] for i in valid_actions])
