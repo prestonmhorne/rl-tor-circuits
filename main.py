@@ -143,8 +143,6 @@ def print_comparison(dqn_metrics, baseline_metrics):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--agent', type=str, default='dqn',
-                        choices=['baseline', 'dqn', 'both'])
     parser.add_argument('--episodes', type=int, default=config.TRAIN_NUM_EPISODES)
     parser.add_argument('--seed', type=int, default=config.RANDOM_SEED)
     parser.add_argument('--eval_episodes', type=int, default=100)
@@ -155,81 +153,53 @@ def main():
 
     env = CircuitEnv()
 
-    dqn_agent = None
-    baseline_agent = None
-    dqn_metrics = None
-    baseline_metrics = None
+    dqn_agent = DQNAgent(
+        action_dim=config.ENV_NUM_RELAYS,
+        state_dim=env.observation_space.shape[0]
+    )
 
-    if args.agent in ['dqn', 'both']:
-        dqn_agent = DQNAgent(
-            action_dim=config.ENV_NUM_RELAYS,
-            state_dim=env.observation_space.shape[0]
-        )
+    baseline_agent = BaselineAgent(
+        action_dim=config.ENV_NUM_RELAYS,
+        state_dim=env.observation_space.shape[0]
+    )
 
-    if args.agent in ['baseline', 'both']:
-        baseline_agent = BaselineAgent(
-            action_dim=config.ENV_NUM_RELAYS,
-            state_dim=env.observation_space.shape[0]
-        )
+    print("="*80)
+    print("TRAINING DQN AGENT")
+    print("="*80)
+    print(f"Episodes: {args.episodes}")
+    print(f"Relays: {config.ENV_NUM_RELAYS}")
 
-    if dqn_agent is not None:
-        print("="*80)
-        print("TRAINING DQN AGENT")
-        print("="*80)
-        print(f"Episodes: {args.episodes}")
-        print(f"Relays: {config.ENV_NUM_RELAYS}")
+    for episode in range(args.episodes):
+        obs, _ = env.reset()
+        terminated = False
+        episode_reward = 0
 
-        for episode in range(args.episodes):
-            obs, _ = env.reset()
-            terminated = False
-            episode_reward = 0
+        while not terminated:
+            action_mask = env.get_action_mask()
+            relay_info = env.get_relay_info()
+            action = dqn_agent.select_action(obs, action_mask, relay_info)
 
-            while not terminated:
-                action_mask = env.get_action_mask()
-                relay_info = env.get_relay_info()
-                action = dqn_agent.select_action(obs, action_mask, relay_info)
+            next_obs, reward, terminated, _, _ = env.step(action)
 
-                next_obs, reward, terminated, _, _ = env.step(action)
+            next_action_mask = env.get_action_mask()
+            next_relay_info = env.get_relay_info()
+            dqn_agent.store_transition(obs, action, reward, next_obs, terminated, relay_info, next_relay_info, next_action_mask)
+            dqn_agent.train_step()
 
-                next_action_mask = env.get_action_mask()
-                next_relay_info = env.get_relay_info()
-                dqn_agent.store_transition(obs, action, reward, next_obs, terminated, relay_info, next_relay_info, next_action_mask)
-                dqn_agent.train_step()
+            obs = next_obs
+            episode_reward += reward
 
-                obs = next_obs
-                episode_reward += reward
+        dqn_agent.decay_epsilon()
 
-            dqn_agent.decay_epsilon()
+        if episode % config.TRAIN_LOG_FREQ == 0:
+            print(f"Episode {episode:5d}/{args.episodes} | Reward: {episode_reward:7.2f} | Epsilon: {dqn_agent.epsilon:.3f}")
 
-            if episode % config.TRAIN_LOG_FREQ == 0:
-                print(f"Episode {episode:5d}/{args.episodes} | Reward: {episode_reward:7.2f} | Epsilon: {dqn_agent.epsilon:.3f}")
+    print("Training Complete!")
 
-        print("Training Complete!")
+    dqn_metrics = evaluate_agent(dqn_agent, env, args.eval_episodes, "DQN")
+    baseline_metrics = evaluate_agent(baseline_agent, env, args.eval_episodes, "Baseline")
 
-    if dqn_agent is not None:
-        dqn_metrics = evaluate_agent(dqn_agent, env, args.eval_episodes, "DQN")
-
-    if baseline_agent is not None:
-        baseline_metrics = evaluate_agent(baseline_agent, env, args.eval_episodes, "Baseline")
-
-    if args.agent == 'both' and dqn_metrics and baseline_metrics:
-        print_comparison(dqn_metrics, baseline_metrics)
-    elif dqn_metrics:
-        print("\n" + "="*80)
-        print("DQN RESULTS")
-        print("="*80)
-        print(f"Mean Reward: {dqn_metrics['mean_reward']:.2f} ± {dqn_metrics['std_reward']:.2f}")
-        print(f"Success Rate: {dqn_metrics['success_rate']:.1f}%")
-        print(f"Mean Bandwidth: {dqn_metrics['mean_bandwidth']:.2f} MB/s")
-        print(f"Mean Latency: {dqn_metrics['mean_latency']:.2f} ms")
-    elif baseline_metrics:
-        print("\n" + "="*80)
-        print("BASELINE RESULTS")
-        print("="*80)
-        print(f"Mean Reward: {baseline_metrics['mean_reward']:.2f} ± {baseline_metrics['std_reward']:.2f}")
-        print(f"Success Rate: {baseline_metrics['success_rate']:.1f}%")
-        print(f"Mean Bandwidth: {baseline_metrics['mean_bandwidth']:.2f} MB/s")
-        print(f"Mean Latency: {baseline_metrics['mean_latency']:.2f} ms")
+    print_comparison(dqn_metrics, baseline_metrics)
 
 if __name__ == "__main__":
     main()
