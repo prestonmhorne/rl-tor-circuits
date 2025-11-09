@@ -78,7 +78,5 @@ def main():
     else:
         print("\nCircuit Failed")
 
-
-
 if __name__ == "__main__":
     main()
